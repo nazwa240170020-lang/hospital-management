@@ -2,230 +2,312 @@
 session_start();
 include "../config/koneksi.php";
 
-/* ===================== CEK SESSION ===================== */
-if (!isset($_SESSION['role']) || $_SESSION['role'] != 'dokter') {
+if (!isset($_SESSION['role']) || $_SESSION['role'] != 'admin') {
     header("Location: ../login.php");
     exit();
 }
 
-/* ===================== DATA DOKTER ===================== */
-$id_user = $_SESSION['id_user'];
-$dokter = mysqli_fetch_assoc(mysqli_query(
-    $koneksi,
-    "SELECT nip, nama_dokter FROM dokter WHERE id_user='$id_user'"
-));
+// ===== DATA COUNT =====
+$jumlah_dokter = mysqli_num_rows(mysqli_query($koneksi, "SELECT * FROM dokter"));
+$jumlah_pasien = mysqli_num_rows(mysqli_query($koneksi, "SELECT * FROM pasien"));
+$jumlah_rawat  = mysqli_num_rows(mysqli_query($koneksi, "SELECT * FROM rawat_inap"));
+$jumlah_obat   = mysqli_num_rows(mysqli_query($koneksi, "SELECT * FROM obat"));
+$jumlah_kamar  = mysqli_num_rows(mysqli_query($koneksi, "SELECT * FROM kamar"));
 
-if(!$dokter){
-    header("Location: daftar_dokter.php");
-    exit();
-}
-
-$nip = $dokter['nip'];
-$nama_dokter = htmlspecialchars($dokter['nama_dokter']);
-
-/* ===================== STATISTIK ===================== */
-$total = mysqli_fetch_assoc(mysqli_query(
-    $koneksi,"SELECT COUNT(*) total FROM rawat_inap WHERE nip='$nip'"
-))['total'] ?? 0;
-
-$aktif = mysqli_fetch_assoc(mysqli_query(
-    $koneksi,"SELECT COUNT(*) total FROM rawat_inap 
-              WHERE nip='$nip' 
-              AND (tanggal_keluar IS NULL OR tanggal_keluar='')"
-))['total'] ?? 0;
-
-$selesai = $total - $aktif;
-
-$baru = mysqli_fetch_assoc(mysqli_query(
-    $koneksi,"SELECT COUNT(*) total FROM rawat_inap 
-              WHERE nip='$nip' AND DATE(tanggal_masuk)=CURDATE()"
-))['total'] ?? 0;
-
-$warning = mysqli_num_rows(mysqli_query(
-    $koneksi,"SELECT * FROM rawat_inap 
-              WHERE nip='$nip' 
-              AND (diagnosa IS NULL OR diagnosa='')"
-));
-
-$pasien_terakhir = mysqli_query($koneksi,"
-    SELECT r.kode_rawat, p.nama_pasien, r.tanggal_masuk
-    FROM rawat_inap r
-    JOIN pasien p ON r.kode_pasien=p.kode_pasien
-    WHERE r.nip='$nip'
-    ORDER BY r.tanggal_masuk DESC
-    LIMIT 5
-");
+// ===== DATA KAMAR (Pie Chart) =====
+$kamar_kosong = mysqli_num_rows(mysqli_query($koneksi, "SELECT * FROM kamar WHERE status='kosong'"));
+$kamar_terisi = mysqli_num_rows(mysqli_query($koneksi, "SELECT * FROM kamar WHERE status='terisi'"));
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<title>Dashboard Dokter</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Admin - Bukit Indah Hospital</title>
+
+<!-- Font Awesome untuk ikon -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 
+<!-- Chart JS -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <style>
-*{box-sizing:border-box}
+*{box-sizing:border-box;}
 body{
-    margin:0;font-family:'Segoe UI',sans-serif;
-    background:
-    linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.45)),
-    url("../assets/ChatGPT Image Feb 28, 2026, 02_19_00 PM.png");
+    margin:0;
+    font-family:'Segoe UI',sans-serif;
+    background: linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.45)),
+               url("../assets/ChatGPT Image Feb 28, 2026, 02_19_00 PM.png");
+    background-size:cover;
+    background-attachment:fixed;
     display:flex;
 }
 
-/* SIDEBAR */
+/* ===== SIDEBAR ===== */
 .sidebar{
-    width:250px;background:#FF8C42;min-height:100vh
+    width:250px;
+    background:#FF8C42;
+    min-height:100vh;
+    transition:width 0.3s;
+    position:relative;
+}
+.sidebar.collapsed{
+    width:70px;
 }
 .sidebar .logo{
-    color:#fff;text-align:center;font-weight:700;
-    padding:20px;border-bottom:1px solid rgba(255,255,255,.3)
+    color:#FFF6EE;
+    text-align:center;
+    font-size:1.2rem;
+    font-weight:bold;
+    padding:20px 10px;
+    border-bottom:1px solid rgba(255,255,255,0.3);
 }
-.sidebar a{
-    display:flex;align-items:center;gap:10px;
-    padding:15px 20px;color:#fff;text-decoration:none;font-weight:600
+.sidebar ul{
+    list-style:none;
+    padding:0;
+    margin:0;
 }
-.sidebar a:hover,.sidebar a.active{background:#E67323}
+.sidebar ul li{
+    position:relative;
+}
+.sidebar ul li a{
+    display:flex;
+    align-items:center;
+    padding:15px 20px;
+    color:#FFF1E8;
+    text-decoration:none;
+    font-weight:600;
+    transition:0.3s;
+    white-space:nowrap;
+}
+.sidebar ul li a:hover,
+.sidebar ul li a.active{
+    background:#E67323;
+}
+.sidebar ul li a i{
+    width:25px;
+    font-size:1.1rem;
+    text-align:center;
+    margin-right:15px;
+    transition: transform 0.3s;
+}
+/* Tooltip saat collapse */
+.sidebar.collapsed ul li a .label{
+    display:none;
+}
+.sidebar.collapsed ul li a:hover::after{
+    content:attr(data-tooltip);
+    position:absolute;
+    left:100%;
+    top:50%;
+    transform:translateY(-50%);
+    background:rgba(0,0,0,0.75);
+    color:#FFF;
+    padding:5px 10px;
+    border-radius:5px;
+    white-space:nowrap;
+    z-index:10;
+}
 
-/* MAIN */
-.main{flex:1;padding:20px}
+/* ===== MAIN CONTENT ===== */
+.main{
+    flex:1;
+    padding:20px;
+}
+.toggle-btn{
+    position:absolute;
+    top:15px;
+    right:-20px;
+    background:#E67323;
+    color:#FFF;
+    border-radius:50%;
+    width:35px;
+    height:35px;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    cursor:pointer;
+    font-weight:bold;
+    transition:0.3s;
+    z-index:100;
+}
+
+/* ===== CONTENT CARDS ===== */
 .content{
     background:rgba(255,242,224,.95);
-    padding:25px;border-radius:18px;
-    box-shadow:0 10px 30px rgba(255,140,66,.35)
+    padding:25px 20px;
+    border-radius:18px;
+    box-shadow:0 10px 30px rgba(255,140,66,.35);
+    animation:fadeIn .8s ease;
 }
-h1{text-align:center;color:#B34D00}
-
-/* WARNING */
-.warning{
-    background:#FFD54F;
-    padding:14px;
-    border-radius:16px;
-    margin-bottom:18px;
-    font-weight:600
+.content h1{
+    text-align:center;
+    color:#B34D00;
+    font-size:1.4rem;
 }
-
-/* ACTION */
-.actions{
-    display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px
-}
-.actions a{
-    flex:1;min-width:180px;
-    text-align:center;padding:12px;
-    background:#FF8C42;color:#fff;
-    border-radius:30px;text-decoration:none;font-weight:700
-}
-
-/* CARDS */
 .cards{
     display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
-    gap:18px;margin-bottom:25px
+    grid-template-columns:1fr;
+    gap:18px;
+    margin:25px 0;
 }
 .card{
-    background:rgba(255,255,255,.38);
-    backdrop-filter:blur(14px);
-    padding:24px;border-radius:22px;
-    text-align:center;cursor:pointer;
-    border:1px solid rgba(255,255,255,.25);
-    box-shadow:0 10px 28px rgba(0,0,0,.2);
-    transition:.35s
+    background:rgba(255,179,128,.85);
+    padding:25px;
+    border-radius:18px;
+    text-align:center;
+    box-shadow:0 8px 22px rgba(255,140,66,.45);
+    transition:transform 0.3s, box-shadow 0.3s;
 }
 .card:hover{
-    transform:translateY(-6px) scale(1.02);
-    box-shadow:0 16px 36px rgba(0,0,0,.32);
+    transform:translateY(-5px);
+    box-shadow:0 12px 28px rgba(255,140,66,.6);
 }
-.card i{
-    font-size:2.1rem;color:#B34D00;margin-bottom:8px
-}
+.card h3{margin:0;font-size:1rem;}
 .card .number{
-    font-size:2.6rem;font-weight:800;color:#B34D00
-}
-.card span{font-size:.9rem;opacity:.85}
-.badge{
-    margin-top:6px;display:inline-block;
-    padding:4px 12px;border-radius:20px;
-    background:#E53935;color:#fff;font-size:.75rem
+    font-size:3rem;
+    font-weight:800;
+    color:#B34D00;
 }
 
-/* LIST */
-.list{
-    background:#fff;padding:18px;border-radius:16px
+/* ===== CHARTS ===== */
+.charts-container{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:20px;
+    margin-top:30px;
 }
-.list table{width:100%;border-collapse:collapse}
-.list td{padding:10px;border-bottom:1px solid #eee}
-.small{font-size:.8rem;color:#777}
+.chart-box{
+    background:#FFF;
+    padding:20px;
+    border-radius:16px;
+    box-shadow:0 6px 18px rgba(0,0,0,.15);
+}
+.chart-box canvas{
+    width:100%!important;
+    height:320px!important;
+}
+
+/* ===== DESKTOP ===== */
+@media(min-width:768px){
+    .cards{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
+    .charts-container{grid-template-columns:1fr 1fr;}
+}
+
+@keyframes fadeIn{
+    from{opacity:0;transform:translateY(15px);}
+    to{opacity:1;transform:translateY(0);}
+}
 </style>
 </head>
-
 <body>
 
 <!-- SIDEBAR -->
-<div class="sidebar">
-    <div class="logo">👨‍⚕️ <?= $nama_dokter ?></div>
-    <a class="active"><i class="fas fa-home"></i>Dashboard</a>
-    <a href="daftar_dokter.php"><i class="fas fa-user"></i>Profil</a>
-    <a href="data_pasien.php"><i class="fas fa-users"></i>Data Pasien</a>
-    <a href="input_diagnosa.php"><i class="fas fa-stethoscope"></i>Diagnosa</a>
-    <a href="../logout.php"><i class="fas fa-sign-out-alt"></i>Logout</a>
+<div class="sidebar" id="sidebar">
+    <div class="logo">Hospital Admin</div>
+    <div class="toggle-btn" onclick="toggleSidebar()">≡</div>
+    <ul>
+        <li><a href="dashboard.php" class="active" data-tooltip="Dashboard"><i class="fas fa-tachometer-alt"></i> <span class="label">Dashboard</span></a></li>
+        <li><a href="data_dokter.php" data-tooltip="Data Dokter"><i class="fas fa-user-md"></i> <span class="label">Data Dokter</span></a></li>
+        <li><a href="data_pasien.php" data-tooltip="Data Pasien"><i class="fas fa-users"></i> <span class="label">Data Pasien</span></a></li>
+        <li><a href="data_obat.php" data-tooltip="Data Obat"><i class="fas fa-pills"></i> <span class="label">Data Obat</span></a></li>
+        <li><a href="data_kamar.php" data-tooltip="Data Kamar"><i class="fas fa-bed"></i> <span class="label">Data Kamar</span></a></li>
+        <li><a href="jadwal_dokter.php" data-tooltip="Jadwal Dokter"><i class="fas fa-calendar-alt"></i> <span class="label">Jadwal Dokter</span></a></li>
+        <li><a href="laporan_rawat.php" data-tooltip="Laporan Rawat"><i class="fas fa-file-alt"></i> <span class="label">Laporan</span></a></li>
+        <li><a href="../logout.php" data-tooltip="Logout"><i class="fas fa-sign-out-alt"></i> <span class="label">Logout</span></a></li>
+    </ul>
 </div>
 
-<!-- MAIN -->
+<!-- MAIN CONTENT -->
 <div class="main">
-<div class="content">
-<h1>Dashboard Dokter</h1>
+    <div class="content">
+        <h1>Dashboard Admin Bukit Indah Hospital</h1>
+        <div class="cards">
+            <div class="card"><h3> Dokter</h3><div class="number"><?= $jumlah_dokter ?></div></div>
+            <div class="card"><h3> Pasien</h3><div class="number"><?= $jumlah_pasien ?></div></div>
+            <div class="card"><h3> Rawat Inap</h3><div class="number"><?= $jumlah_rawat ?></div></div>
+            <div class="card"><h3> Obat</h3><div class="number"><?= $jumlah_obat ?></div></div>
+            <div class="card"><h3> Kamar</h3><div class="number"><?= $jumlah_kamar ?></div></div>
+        </div>
 
-<?php if($warning>0): ?>
-<div class="warning">⚠️ <?= $warning ?> pasien belum diisi diagnosa</div>
-<?php endif; ?>
-
-<div class="actions">
-    <a href="input_diagnosa.php">➕ Input Diagnosa</a>
-    <a href="data_pasien.php?filter=baru">🆕 Pasien Baru</a>
-    <a href="print_kuitansi.php?all=1" target="_blank">🧾 Cetak Kuitansi</a>
-</div>
-
-<div class="cards">
-    <div class="card" onclick="location.href='data_pasien.php?filter=aktif'">
-        <i class="fas fa-procedures"></i>
-        <div class="number"><?= $aktif ?></div>
-        <span>Pasien Aktif</span>
-    </div>
-
-    <div class="card" onclick="location.href='data_pasien.php?filter=selesai'">
-        <i class="fas fa-check-circle"></i>
-        <div class="number"><?= $selesai ?></div>
-        <span>Pasien Selesai</span>
-    </div>
-
-    <div class="card" onclick="location.href='data_pasien.php?filter=baru'">
-        <i class="fas fa-user-plus"></i>
-        <div class="number"><?= $baru ?></div>
-        <span>Pasien Baru</span>
-        <?php if($baru>0): ?><div class="badge">Hari Ini</div><?php endif; ?>
+        <div class="charts-container">
+            <div class="chart-box">
+                <h3>📊 Statistik Rumah Sakit</h3>
+                <canvas id="chartData"></canvas>
+            </div>
+            <div class="chart-box">
+                <h3>🥧 Status Kamar</h3>
+                <canvas id="chartKamar"></canvas>
+            </div>
+        </div>
     </div>
 </div>
 
-<div class="list">
-<h3>Pasien Terakhir</h3>
-<table>
-<?php while($p=mysqli_fetch_assoc($pasien_terakhir)): ?>
-<tr>
-<td>
-<strong><?= $p['nama_pasien'] ?></strong><br>
-<span class="small"><?= date('d M Y',strtotime($p['tanggal_masuk'])) ?></span>
-</td>
-<td align="right">
-<a href="input_diagnosa.php?kode_rawat=<?= $p['kode_rawat'] ?>">📝</a>
-<a href="print_kuitansi.php?kode_rawat=<?= $p['kode_rawat'] ?>" target="_blank">🧾</a>
-</td>
-</tr>
-<?php endwhile ?>
-</table>
-</div>
+<script>
+// Sidebar toggle
+function toggleSidebar(){
+    document.getElementById('sidebar').classList.toggle('collapsed');
+}
 
-</div>
-</div>
+// Counter animasi
+document.querySelectorAll('.number').forEach(counter=>{
+    const target=+counter.innerText;
+    counter.innerText=0;
+    const run=()=>{
+        const now=+counter.innerText;
+        const inc=Math.ceil(target/40);
+        if(now<target){
+            counter.innerText=now+inc;
+            setTimeout(run,25);
+        }else counter.innerText=target;
+    };
+    run();
+});
+
+// Bar Chart
+new Chart(document.getElementById('chartData'),{
+    type:'bar',
+    data:{
+        labels:['Dokter','Pasien','Rawat Inap','Obat','Kamar'],
+        datasets:[{
+            label:'Statistik Rumah Sakit',
+            data:[
+                <?= $jumlah_dokter ?>,
+                <?= $jumlah_pasien ?>,
+                <?= $jumlah_rawat ?>,
+                <?= $jumlah_obat ?>,
+                <?= $jumlah_kamar ?>
+            ],
+            backgroundColor:['#FF8C42','#FFB380','#FF7043','#FFA726','#FFCC80'],
+            borderRadius:12
+        }]
+    },
+    options:{
+        responsive:true,
+        plugins:{legend:{display:false}},
+        scales:{y:{beginAtZero:true}}
+    }
+});
+
+// Pie Chart Kamar
+new Chart(document.getElementById('chartKamar'),{
+    type:'doughnut',
+    data:{
+        labels:['Kosong','Terisi'],
+        datasets:[{
+            data:[<?= $kamar_kosong ?>, <?= $kamar_terisi ?>],
+            backgroundColor:['#66BB6A','#FF7043'],
+            borderWidth:0
+        }]
+    },
+    options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        cutout:'65%',
+        plugins:{legend:{position:'bottom'}}
+    }
+});
+</script>
 
 </body>
 </html>

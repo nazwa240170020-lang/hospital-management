@@ -8,15 +8,12 @@ if (!isset($_SESSION['role'])) {
     exit();
 }
 
-/* ===== QUERY KUITANSI (KONSISTEN DENGAN INPUT DIAGNOSA) ===== */
+/* ===== QUERY KUITANSI (KONSISTEN DENGAN LAPORAN) ===== */
 if (isset($_GET['all'])) {
 
     $query = "
         SELECT 
-            r.kode_rawat,
-            r.tanggal_masuk,
-            r.tanggal_keluar,
-            r.biaya_pemeriksaan,
+            r.*,
             p.nama_pasien,
             d.nama_dokter,
 
@@ -27,7 +24,7 @@ if (isset($_GET['all'])) {
             (
                 (k.harga * (DATEDIFF(IFNULL(r.tanggal_keluar, CURDATE()), r.tanggal_masuk)+1))
                 + IFNULL(SUM(ro.subtotal),0)
-                + r.biaya_pemeriksaan
+                + r.biaya
             ) AS total_biaya
 
         FROM rawat_inap r
@@ -41,14 +38,11 @@ if (isset($_GET['all'])) {
 
 } elseif (isset($_GET['kode_rawat'])) {
 
-    $kode_rawat = mysqli_real_escape_string($koneksi,$_GET['kode_rawat']);
+    $kode_rawat = $_GET['kode_rawat'];
 
     $query = "
         SELECT 
-            r.kode_rawat,
-            r.tanggal_masuk,
-            r.tanggal_keluar,
-            r.biaya_pemeriksaan,
+            r.*,
             p.nama_pasien,
             d.nama_dokter,
 
@@ -59,7 +53,7 @@ if (isset($_GET['all'])) {
             (
                 (k.harga * (DATEDIFF(IFNULL(r.tanggal_keluar, CURDATE()), r.tanggal_masuk)+1))
                 + IFNULL(SUM(ro.subtotal),0)
-                + r.biaya_pemeriksaan
+                + r.biaya
             ) AS total_biaya
 
         FROM rawat_inap r
@@ -77,6 +71,7 @@ if (isset($_GET['all'])) {
 
 $data = mysqli_query($koneksi,$query);
 ?>
+
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -91,10 +86,7 @@ body{
     margin:0;
     padding:20px;
 }
-.container{
-    max-width:800px;
-    margin:auto;
-}
+.container{max-width:800px;margin:auto;}
 .kuitansi{
     background:#FFF6EE;
     padding:30px;
@@ -109,14 +101,8 @@ body{
     padding-bottom:15px;
     margin-bottom:20px;
 }
-.header h2{
-    margin:0;
-    color:#B34D00;
-}
-.header p{
-    margin:5px 0 0;
-    font-size:.9rem;
-}
+.header h2{margin:0;color:#B34D00;}
+.header p{margin:5px 0 0;font-size:.9rem;}
 .info{
     display:grid;
     grid-template-columns:1fr 1fr;
@@ -151,9 +137,7 @@ body{
 }
 .ttd{text-align:center;}
 .ttd div{margin-top:60px;font-weight:bold;}
-@media print{
-    body{background:#fff}
-}
+@media print{ body{background:#fff} }
 </style>
 </head>
 
@@ -184,7 +168,7 @@ body{
 <tr><th>Keterangan</th><th>Biaya</th></tr>
 <tr><td>Biaya Kamar</td><td>Rp <?= number_format($r['harga_kamar'],0,',','.') ?></td></tr>
 <tr><td>Biaya Obat</td><td>Rp <?= number_format($r['harga_obat'],0,',','.') ?></td></tr>
-<tr><td>Biaya Pemeriksaan</td><td>Rp <?= number_format($r['biaya_pemeriksaan'],0,',','.') ?></td></tr>
+<tr><td>Biaya Pemeriksaan</td><td>Rp <?= number_format($r['biaya'],0,',','.') ?></td></tr>
 </table>
 
 <div class="total">
@@ -193,10 +177,7 @@ body{
 
 <div class="footer">
     <div> <?= date('d-m-Y') ?></div>
-    <div class="ttd">
-        Dokter
-        <div>( ___________ )</div>
-    </div>
+    <div class="ttd">Admin<div>( ___________ )</div></div>
 </div>
 
 </div>
